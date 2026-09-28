@@ -67,7 +67,9 @@
 
   .panel{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;}
   .subseg{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
-  .subseg .seg-add{border-style:dashed;background:#fff;color:var(--got);}
+  .subseg .seg-add{border-style:dashed;background:#fff;color:var(--got);padding:7px 14px;font-size:16px;line-height:1;}
+  .toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;font-weight:700;z-index:95;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;}
+  .toast.show{opacity:1;}
   .search-wrap{position:relative;margin-bottom:12px;}
   .search-wrap input{width:100%;background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:11px 38px 11px 36px;font-size:15px;font-weight:600;outline:none;}
   .search-wrap input:focus{border-color:var(--slate);}
@@ -85,6 +87,7 @@
   @keyframes spin{to{transform:rotate(360deg);}}
   @media (prefers-reduced-motion:reduce){#ptr.loading .ptr-ic{animation:none;}}
   .type-hint{font-size:11.5px;color:var(--muted);font-weight:600;margin:-6px 0 10px;}
+  .subseg .sortable-chosen{opacity:.6;}
   .subseg button{border:1px solid var(--line);background:var(--soft);border-radius:20px;padding:7px 14px;font-size:14px;font-weight:800;color:var(--muted);}
   .subseg button span{font-weight:700;opacity:.7;margin-left:2px;}
   .subseg button.on{background:var(--slate);border-color:var(--slate);color:#fff;}
@@ -257,7 +260,7 @@
       <button class="s-clear" id="whSearchClear" aria-label="검색 지우기">×</button>
     </div>
     <div class="subseg" id="typeSeg"></div>
-    <div class="type-hint">선택된 종류를 한 번 더 누르면 이름 수정·삭제</div>
+    <div class="type-hint">한 번 더 누르면 이름 수정·삭제, 꾹 눌러 끌면 순서 변경</div>
     <div class="filter-note" id="filterNote"></div>
     <div class="add-row">
       <input id="itemInput" maxlength="30">
@@ -307,6 +310,8 @@
     <input type="file" id="dFile" accept="image/*" hidden>
     <label class="field-label" for="dName">이름</label>
     <input class="field" id="dName" maxlength="30">
+    <label class="field-label" for="dTypeSel">종류</label>
+    <select class="field" id="dTypeSel"></select>
     <label class="field-label" for="dCat">분류</label>
     <select class="field" id="dCat"></select>
     <label class="field-label" for="dMemo">메모</label>
@@ -654,8 +659,10 @@
     if(!on) return;
     $("selCount").textContent=ui.sel.size+"개";
     const sel=$("selMove");
-    sel.innerHTML='<option value="">분류로 이동</option><option value="__none">미분류</option>'+
-      state.cats[ui.type].map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join("");
+    const others=state.types.filter(x=>x.id!==ui.type);
+    sel.innerHTML='<option value="">옮기기</option><optgroup label="분류로 이동"><option value="__none">미분류</option>'+
+      (state.cats[ui.type]||[]).map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join("")+'</optgroup>'+
+      (others.length?'<optgroup label="다른 종류로 이동">'+others.map(x=>'<option value="@@type:'+esc(x.id)+'">'+esc(x.name)+'</option>').join("")+'</optgroup>':"");
   }
 
   // 씬 리스트
@@ -921,6 +928,10 @@
     if(document.activeElement!==$("dName")) $("dName").value=it.name;
     if(document.activeElement!==$("dMemo")) $("dMemo").value=it.memo||"";
     if(document.activeElement!==$("dCat")) fillCats(it);
+    if(document.activeElement!==$("dTypeSel")){
+      $("dTypeSel").innerHTML=state.types.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join("");
+      $("dTypeSel").value=it.type;
+    }
     document.querySelectorAll("#dStatus button").forEach(b=>b.classList.toggle("on",b.dataset.s===it.status));
     const w=[];
     if(it.gotBy) w.push("확보 <b>"+esc(it.gotBy)+"</b> "+esc(it.gotAt||""));
@@ -947,6 +958,10 @@
     it.name=v; persist(["items/"+it.id]); render(true);
   });
   $("dMemo").addEventListener("change",e=>{ const it=state.items[ui.itemId]; if(!it) return; it.memo=e.target.value.trim(); persist(["items/"+it.id]); });
+  $("dTypeSel").addEventListener("change",e=>{
+    const it=state.items[ui.itemId]; if(!it) return;
+    if(moveToType([it.id],e.target.value)){ fillCats(it); toast(tn(it.type)+"(으)로 옮겼어"); render(true); }
+  });
   $("dCat").addEventListener("change",e=>{
     const it=state.items[ui.itemId]; if(!it) return;
     it.cat=e.target.value; it.ord=Date.now(); persist(["items/"+it.id]); render(true);
@@ -1004,12 +1019,29 @@
   function renderTypeSeg(){
     const box=$("typeSeg");
     box.innerHTML=state.types.map(ty=>'<button data-t="'+esc(ty.id)+'"'+(ty.id===ui.type?' class="on"':"")+'>'+esc(ty.name)+'<span> '+itemsOf(ty.id).length+'</span></button>').join("")+
-      '<button class="seg-add" id="typeAdd">+ 종류</button>';
+      '<button class="seg-add" id="typeAdd" aria-label="종류 추가">+</button>';
     box.querySelectorAll("button[data-t]").forEach(b=>b.onclick=()=>{
       if(b.dataset.t===ui.type){ editType(ui.type); return; }
       ui.type=b.dataset.t; ui.sel.clear(); render(true);
     });
     $("typeAdd").onclick=addType;
+    if(window.Sortable && !Sortable.get(box)) Sortable.create(box,{draggable:"button[data-t]",animation:150,delay:200,delayOnTouchOnly:true,
+      onEnd:()=>{
+        const order=[...box.querySelectorAll("button[data-t]")].map(b=>b.dataset.t);
+        state.types.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id));
+        persist(["types"]); setTimeout(()=>render(true),0);
+      }});
+  }
+  let toastT=null;
+  function toast(msg){
+    let el=$("toast"); if(!el){ el=document.createElement("div"); el.id="toast"; el.className="toast"; document.body.appendChild(el); }
+    el.textContent=msg; el.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove("show"),1800);
+  }
+  function moveToType(ids,tid){
+    const base=Date.now(), paths=[];
+    ids.forEach((id,n)=>{ const it=state.items[id]; if(!it||it.type===tid) return; it.type=tid; it.cat=""; it.ord=base+n; paths.push("items/"+id); });
+    if(paths.length) persist(paths);
+    return paths.length;
   }
   function addType(){
     const v=prompt("새 종류 이름 (예: 세트, 분장, 차량)"); if(v===null) return;
@@ -1055,6 +1087,10 @@
   $("selMove").addEventListener("change",e=>{
     const v=e.target.value; if(!v) return;
     if(!ui.sel.size){ alert("옮길 걸 먼저 골라줘."); e.target.value=""; return; }
+    if(v.indexOf("@@type:")===0){
+      const tid=v.slice(7), n=moveToType([...ui.sel],tid);
+      ui.sel.clear(); render(true); toast(n+"개를 "+tn(tid)+"(으)로 옮겼어"); return;
+    }
     const cat=v==="__none"?"":v, base=Date.now(), paths=[];
     itemsOf(ui.type).filter(i=>ui.sel.has(i.id)).forEach((it,n)=>{ it.cat=cat; it.ord=base+n; paths.push("items/"+it.id); });
     persist(paths);
