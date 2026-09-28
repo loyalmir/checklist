@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>소품팀 리스트</title>
+<title>촬영 준비/진행</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Gothic+A1:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -54,7 +54,9 @@
 
   /* ---------- 탭 ---------- */
   .tabs{display:flex;background:#DCE1E7;border-radius:14px;padding:4px;margin:16px 0 12px;}
-  .tabs button{flex:1;border:none;background:transparent;border-radius:11px;padding:10px 0;font-size:15px;font-weight:800;color:var(--muted);white-space:nowrap;}
+  .tabs button{flex:1;border:none;background:transparent;border-radius:11px;padding:10px 0;font-size:14px;font-weight:800;color:var(--muted);white-space:nowrap;}
+  .ct-top{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted);font-weight:600;margin-bottom:4px;}
+  .ct-top .text-btn{color:var(--got);}
   .cont-cat:first-child{margin-top:0;}
   .shot-load{font-size:11px;color:var(--muted);font-weight:700;}
   .tabs button.on{background:var(--card);color:var(--ink);box-shadow:0 2px 6px -3px rgba(0,0,0,.25);}
@@ -134,7 +136,6 @@
   .scene-fields .s-title{grid-column:1/-1;}
   .scene-fields input[type=date]{-webkit-appearance:none;appearance:none;display:flex;align-items:center;}
   .scene-fields input[type=date]::-webkit-date-and-time-value{text-align:left;margin:0;}
-  .cont{margin-top:16px;border-top:1px dashed var(--line);padding-top:12px;}
   .cont-head{display:flex;align-items:center;}
   .cont-head b{font-size:14px;font-weight:800;}
   .cont-head .text-btn{margin-left:auto;color:var(--got);}
@@ -223,6 +224,7 @@
   <div class="tabs" id="tabs">
     <button data-tab="wh" class="on">전체 리스트</button>
     <button data-tab="sc"># 씬 리스트</button>
+    <button data-tab="ct">연결 사진</button>
   </div>
 
   <!-- 전체 리스트 -->
@@ -255,6 +257,15 @@
       <button class="add-btn" id="sceneBtn">추가</button>
     </div>
     <div id="sceneList"></div>
+  </div>
+
+  <!-- 연결 사진 -->
+  <div class="panel" id="ctPanel" hidden>
+    <div class="ct-top">
+      <span># 씬 리스트의 씬이 그대로 연결돼</span>
+      <button class="text-btn" id="ctAddCat">사진 분류 추가</button>
+    </div>
+    <div id="contList"></div>
   </div>
 
 </div>
@@ -454,9 +465,9 @@
     if(!force && listBusy()){ pending=true; return; }
     pending=false;
     renderHeader(); renderSummary();
-    $("whPanel").hidden = ui.tab!=="wh"; $("scPanel").hidden = ui.tab!=="sc";
+    $("whPanel").hidden = ui.tab!=="wh"; $("scPanel").hidden = ui.tab!=="sc"; $("ctPanel").hidden = ui.tab!=="ct";
     document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===ui.tab));
-    if(ui.tab==="wh") renderWarehouse(); else renderScenes();
+    if(ui.tab==="wh") renderWarehouse(); else if(ui.tab==="sc") renderScenes(); else renderContTab();
     renderSelBar();
     if(ui.itemId) refreshSheet();
     if(ui.shot) refreshShot();
@@ -600,7 +611,7 @@
           '<div class="slate-no">#'+esc(sc.no)+'</div>'+
           '<div class="scene-t"><div class="scene-title">'+esc(sc.title||"장면 이름 없음")+'</div>'+
           '<div class="scene-meta">'+(sc.date?"<span>"+fmtDate(sc.date)+"</span>":"")+(sc.place?"<span>"+esc(sc.place)+"</span>":"")+
-            "<span>소품 "+props.length+"</span><span>의상 "+costs.length+"</span>"+(sc.shots.length?"<span>사진 "+sc.shots.length+"</span>":"")+(notStored?'<span class="warn">미입고 '+notStored+"</span>":"")+'</div></div>'+
+            "<span>소품 "+props.length+"</span><span>의상 "+costs.length+"</span>"+(notStored?'<span class="warn">미입고 '+notStored+"</span>":"")+'</div></div>'+
           '<div class="scene-prog'+(its.length&&setN===its.length?" full":"")+'">'+setN+"/"+its.length+'</div>'+
           '<span class="chev">▾</span>'+
         '</div>'+
@@ -612,7 +623,6 @@
           '</div>'+
           '<div class="s-list"></div>'+
           '<div class="scene-actions"><button class="add-btn s-pick">+ 소품·의상 담기</button></div>'+
-          '<div class="cont"></div>'+
           '<div class="scene-foot"><button class="text-btn s-reset">세팅 체크 초기화</button><button class="text-btn danger s-del">씬 삭제</button></div>'+
         '</div>';
       card.querySelector(".s-title").value=sc.title||"";
@@ -620,7 +630,7 @@
       card.querySelector(".s-place").value=sc.place||"";
       card.querySelector(".scene-head").onclick=()=>{
         if(ui.openScenes.has(sc.id)) ui.openScenes.delete(sc.id); else ui.openScenes.add(sc.id);
-        render(true);
+        card.classList.toggle("open");
       };
       [["s-title","title"],["s-date","date"],["s-place","place"]].forEach(([cls,key])=>{
         card.querySelector("."+cls).addEventListener("change",e=>{ const s=state.scenes[sc.id]; if(!s) return; s[key]=e.target.value.trim(); persist(["scenes/"+sc.id]); render(true); });
@@ -643,7 +653,6 @@
         });
       });
       card.querySelector(".s-pick").onclick=()=>openPicker(sc.id);
-      if(ui.openScenes.has(sc.id)){ ensureShots(sc); renderCont(card.querySelector(".cont"),sc); }
       card.querySelector(".s-reset").onclick=()=>{ const s=state.scenes[sc.id]; if(!s||!confirm("#"+sc.no+" 세팅 체크를 전부 풀까?")) return; s.set={}; persist(["scenes/"+sc.id]); render(true); };
       card.querySelector(".s-del").onclick=()=>{ if(!confirm("#"+sc.no+" 씬을 지울까? 연결 사진도 같이 지워지고, 담긴 소품·의상은 전체 리스트에 그대로 남아.")) return; (sc.shots||[]).forEach(x=>shotRemove(x.id)); delete state.scenes[sc.id]; ui.openScenes.delete(sc.id); persist(["scenes/"+sc.id]); render(true); };
       box.appendChild(card);
@@ -678,10 +687,28 @@
       remote.getShot(id).then(d=>{ if(d) shotCache[id]=d; }).catch(()=>{}).finally(laterRender);
     });
   }
+  function renderContTab(){
+    const box=$("contList"); box.innerHTML="";
+    const scs=sortedScenes();
+    if(!scs.length){ box.innerHTML='<div class="empty"># 씬 리스트에서 씬을 만들면 여기에 똑같이 나타나.</div>'; return; }
+    scs.forEach(sc=>{
+      const open=ui.openCont.has(sc.id);
+      const counts=state.contCats.map(c=>{ const n=sc.shots.filter(s=>s.cat===c).length; return n?"<span>"+esc(c)+" "+n+"</span>":""; }).join("");
+      const card=document.createElement("div"); card.className="scene"+(open?" open":"");
+      card.innerHTML='<div class="scene-head"><div class="slate-no">#'+esc(sc.no)+'</div>'+
+        '<div class="scene-t"><div class="scene-title">'+esc(sc.title||"장면 이름 없음")+'</div>'+
+        '<div class="scene-meta">'+(sc.date?"<span>"+fmtDate(sc.date)+"</span>":"")+(sc.place?"<span>"+esc(sc.place)+"</span>":"")+(counts||"<span>사진 없음</span>")+'</div></div>'+
+        '<span class="chev">▾</span></div>'+
+        '<div class="scene-body"><div class="cont"></div></div>';
+      card.querySelector(".scene-head").onclick=()=>{ if(open) ui.openCont.delete(sc.id); else ui.openCont.add(sc.id); render(true); };
+      if(open){ ensureShots(sc); renderCont(card.querySelector(".cont"),sc); }
+      box.appendChild(card);
+    });
+  }
+  $("ctAddCat").onclick=()=>addContCat();
   function renderCont(el,sc){
-    el.innerHTML='<div class="cont-head"><b>연결 사진</b><button class="text-btn c-addcat">분류 추가</button></div>';
-    el.querySelector(".c-addcat").onclick=addContCat;
-    if(!state.contCats.length){ el.insertAdjacentHTML("beforeend",'<div class="empty">분류 추가를 눌러 분류를 만들어줘.</div>'); return; }
+    el.innerHTML="";
+    if(!state.contCats.length){ el.innerHTML='<div class="empty">위의 사진 분류 추가를 눌러 분류를 만들어줘.</div>'; return; }
     state.contCats.forEach(cat=>{
       const shots=sc.shots.filter(s=>s.cat===cat);
       const g=document.createElement("div"); g.className="cont-cat";
