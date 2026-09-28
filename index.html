@@ -76,7 +76,25 @@
 
   /* ---------- 리스트 행 ---------- */
   .cat-block{margin-top:14px;}
-  .cat-head{display:flex;align-items:center;gap:6px;margin-bottom:7px;}
+  .cat-head{display:flex;align-items:center;gap:6px;margin-bottom:7px;cursor:pointer;user-select:none;padding:3px 0;}
+  .cat-chev{font-size:11px;color:var(--muted);transition:transform .2s;width:12px;}
+  .cat-block.closed .cat-chev{transform:rotate(-90deg);}
+  .cat-block.closed .cat-list{display:none;}
+  .cat-acts{margin-left:auto;display:flex;align-items:center;gap:2px;}
+  .cat-act{background:none;border:none;color:var(--got);font-size:12px;font-weight:800;padding:4px 6px;}
+  .list-tools{display:flex;justify-content:space-between;align-items:center;margin-top:4px;}
+  .list-tools .text-btn{color:var(--got);}
+  .row.sel-on{border-color:var(--got);background:#EEF4FC;}
+  .row .box{margin-right:4px;}
+  .row .box.on{background:var(--got);border-color:var(--got);}
+  .sel-bar{position:fixed;left:0;right:0;bottom:0;z-index:40;display:none;justify-content:center;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--slate-deep);box-shadow:0 -6px 18px -8px rgba(0,0,0,.4);}
+  .sel-bar.show{display:flex;}
+  .sel-in{width:100%;max-width:560px;display:flex;gap:7px;align-items:center;}
+  #selCount{color:#fff;font-weight:800;font-size:14px;white-space:nowrap;}
+  .sel-in select{flex:1;min-width:0;height:42px;border-radius:10px;border:none;padding:0 10px;font-weight:700;font-size:14px;background:#fff;color:var(--ink);}
+  .sel-in button{height:42px;border-radius:10px;border:none;padding:0 13px;font-weight:800;font-size:14px;white-space:nowrap;}
+  #selDel{background:var(--need);color:#fff;}
+  #selDone{background:var(--tape);color:var(--slate-deep);}
   .cat-name{font-size:13px;font-weight:800;color:var(--slate);}
   .cat-del{background:none;border:none;color:#B9C1CC;font-size:17px;line-height:1;padding:0 3px;}
   .cat-list{min-height:30px;border-radius:12px;}
@@ -205,6 +223,10 @@
       <input id="catInput" maxlength="16">
       <button class="ghost-btn" id="catBtn">분류 추가</button>
     </div>
+    <div class="list-tools">
+      <button class="text-btn" id="selBtn">여러 개 선택</button>
+      <button class="text-btn" id="foldAll">모두 접기</button>
+    </div>
     <div id="whList"></div>
   </div>
 
@@ -263,6 +285,15 @@
   </div>
 </div>
 
+<div class="sel-bar" id="selBar">
+  <div class="sel-in">
+    <span id="selCount">0개</span>
+    <select id="selMove" aria-label="분류로 이동"></select>
+    <button id="selDel">삭제</button>
+    <button id="selDone">완료</button>
+  </div>
+</div>
+
 <div class="lightbox" id="lightbox"><img alt=""></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
@@ -310,7 +341,11 @@
   if(!SYNC_ON){ try{ photos=JSON.parse(localStorage.getItem(PHKEY)||"{}")||{}; }catch(e){} }
   let me=""; try{ me=localStorage.getItem(MEKEY)||""; }catch(e){}
 
-  const ui={tab:"wh",type:"prop",filter:"",openScenes:new Set(),itemId:null,pickScene:null,pickType:"prop"};
+  const ui={tab:"wh",type:"prop",filter:"",openScenes:new Set(),itemId:null,pickScene:null,pickType:"prop",selMode:false,sel:new Set()};
+  const CLKEY="props-closed";
+  let closedCats=new Set();
+  try{ closedCats=new Set(JSON.parse(localStorage.getItem(CLKEY)||"[]")); }catch(e){}
+  function saveClosed(){ try{ localStorage.setItem(CLKEY,JSON.stringify([...closedCats])); }catch(e){} }
 
   // ---------- 저장 ----------
   let remote=null;
@@ -365,6 +400,17 @@
     persist(["items/"+id]); return {id,dup:false};
   }
 
+  function deleteItems(ids){
+    const set=new Set(ids), paths=[];
+    ids.forEach(id=>{ if(state.items[id]){ delete state.items[id]; paths.push("items/"+id); } });
+    Object.values(state.scenes).forEach(s=>{
+      const n=s.items.length; s.items=s.items.filter(x=>!set.has(x)); ids.forEach(x=>delete s.set[x]);
+      if(s.items.length!==n) paths.push("scenes/"+s.id);
+    });
+    persist(paths);
+    ids.forEach(id=>{ if(photos[id]) savePhoto(id,null); });
+  }
+
   // ---------- 렌더 ----------
   let pending=false;
   function listBusy(){ const a=document.activeElement; return a && /INPUT|TEXTAREA/.test(a.tagName) && (a.closest("#sceneList")||a.closest("#whList")); }
@@ -377,6 +423,7 @@
     $("whPanel").hidden = ui.tab!=="wh"; $("scPanel").hidden = ui.tab!=="sc";
     document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===ui.tab));
     if(ui.tab==="wh") renderWarehouse(); else renderScenes();
+    renderSelBar();
     if(ui.itemId) refreshSheet();
     if(ui.pickScene) renderPicker();
   }
@@ -399,7 +446,14 @@
     row.innerHTML=thumbHTML(it)+
       '<div class="row-main"><div class="row-name">'+esc(it.name)+'</div>'+
       ((who.length||scs.length)?'<div class="row-sub">'+who.map(w=>"<span>"+esc(w)+"</span>").join("")+scs.map(s=>'<span class="sc-tag">'+esc(s)+"</span>").join("")+"</div>":"")+
-      '</div><button class="pill st-'+it.status+'">'+ST[it.status]+'</button>';
+      '</div>'+(ui.selMode
+        ? '<div class="box'+(ui.sel.has(it.id)?" on":"")+'">'+CHECK+'</div>'
+        : '<button class="pill st-'+it.status+'">'+ST[it.status]+'</button>');
+    if(ui.selMode){
+      if(ui.sel.has(it.id)) row.classList.add("sel-on");
+      row.onclick=()=>{ if(ui.sel.has(it.id)) ui.sel.delete(it.id); else ui.sel.add(it.id); render(true); };
+      return row;
+    }
     row.querySelector(".pill").onclick=e=>{ e.stopPropagation(); advance(it.id); };
     row.onclick=()=>openItem(it.id);
     return row;
@@ -420,7 +474,7 @@
   function renderWarehouse(){
     const t=ui.type;
     document.querySelectorAll("#typeSeg button").forEach(b=>{ b.classList.toggle("on",b.dataset.t===t); b.querySelector("span").textContent=" "+itemsOf(b.dataset.t).length; });
-    $("itemInput").placeholder = t==="prop" ? "소품 이름 (예: 빈티지 머그컵)" : "의상 이름 (예: 민지 교복 셔츠)";
+    $("itemInput").placeholder = t==="prop" ? "소품 이름 (쉼표로 여러 개: 컵, 접시, 수저)" : "의상 이름 (쉼표로 여러 개: 셔츠, 코트)";
     $("catInput").placeholder  = t==="prop" ? "분류 (예: 주방, 소지품, 간판)" : "분류 (예: 배역 이름)";
     const fn=$("filterNote");
     fn.innerHTML = ui.filter ? "<span>"+ST[ui.filter]+" 상태만 보는 중</span><button id=\"clearFilter\">전체 보기</button>" : "";
@@ -436,23 +490,63 @@
       const its=shown.filter(i=>(i.cat||"")===b.key);
       if(b.key==="" && !its.length && cats.length) return;
       if(ui.filter && !its.length) return;
-      const block=document.createElement("div"); block.className="cat-block";
-      block.innerHTML='<div class="cat-head"><span class="cat-name">'+esc(b.label)+" ("+its.length+")</span></div>";
-      if(b.key!==""){
+      const ck=t+"|"+b.key;
+      const block=document.createElement("div"); block.className="cat-block"+(closedCats.has(ck)?" closed":"");
+      block.innerHTML='<div class="cat-head"><span class="cat-chev">▾</span><span class="cat-name">'+esc(b.label)+" ("+its.length+')</span><span class="cat-acts"></span></div>';
+      const head=block.querySelector(".cat-head"), acts=block.querySelector(".cat-acts");
+      head.onclick=()=>{ if(closedCats.has(ck)) closedCats.delete(ck); else closedCats.add(ck); saveClosed(); block.classList.toggle("closed"); updateFoldBtn(); };
+      if(ui.selMode && its.length){
+        const all=its.every(i=>ui.sel.has(i.id));
+        const sa=document.createElement("button"); sa.className="cat-act"; sa.textContent=all?"선택 해제":"모두 선택";
+        sa.onclick=e=>{ e.stopPropagation(); its.forEach(i=>{ if(all) ui.sel.delete(i.id); else ui.sel.add(i.id); }); render(true); };
+        acts.appendChild(sa);
+      } else if(b.key!==""){
+        const ed=document.createElement("button"); ed.className="cat-act"; ed.textContent="이름 수정";
+        ed.onclick=e=>{
+          e.stopPropagation();
+          const v=prompt("분류 이름 수정",b.key); if(v===null) return;
+          const n=v.trim().slice(0,16); if(!n||n===b.key) return;
+          if(cats.includes(n)){ alert("이미 있는 분류야."); return; }
+          const paths=["cats/"+t];
+          state.cats[t]=cats.map(c=>c===b.key?n:c);
+          Object.values(state.items).forEach(i=>{ if(i.type===t && i.cat===b.key){ i.cat=n; paths.push("items/"+i.id); } });
+          if(closedCats.delete(ck)){ closedCats.add(t+"|"+n); saveClosed(); }
+          persist(paths); render(true);
+        };
+        acts.appendChild(ed);
         const del=document.createElement("button"); del.className="cat-del"; del.textContent="×"; del.setAttribute("aria-label","분류 삭제");
-        del.onclick=()=>{
+        del.onclick=e=>{
+          e.stopPropagation();
           if(!confirm("'"+b.key+"' 분류를 지울까? 안에 있던 건 미분류로 옮겨져.")) return;
           const paths=["cats/"+t];
           Object.values(state.items).forEach(i=>{ if(i.type===t && i.cat===b.key){ i.cat=""; paths.push("items/"+i.id); } });
           state.cats[t]=cats.filter(c=>c!==b.key); persist(paths); render(true);
         };
-        block.querySelector(".cat-head").appendChild(del);
+        acts.appendChild(del);
       }
       const list=document.createElement("div"); list.className="cat-list"; list.dataset.cat=b.key;
       its.forEach(it=>list.appendChild(makeRow(it,sIdx)));
       block.appendChild(list); box.appendChild(block);
-      if(window.Sortable && !ui.filter) Sortable.create(list,{group:"wh-"+t,animation:150,delay:200,delayOnTouchOnly:true,ghostClass:"row-ghost",onEnd:syncOrder});
+      if(window.Sortable && !ui.filter && !ui.selMode) Sortable.create(list,{group:"wh-"+t,animation:150,delay:200,delayOnTouchOnly:true,ghostClass:"row-ghost",onEnd:syncOrder});
     });
+    updateFoldBtn();
+  }
+
+  function updateFoldBtn(){
+    const blocks=[...$("whList").querySelectorAll(".cat-block")];
+    const anyOpen=blocks.some(b=>!b.classList.contains("closed"));
+    $("foldAll").textContent=anyOpen?"모두 접기":"모두 펼치기";
+    $("foldAll").style.visibility=blocks.length>1?"visible":"hidden";
+    $("selBtn").textContent=ui.selMode?"선택 끝내기":"여러 개 선택";
+  }
+  function renderSelBar(){
+    const on=ui.selMode && ui.tab==="wh";
+    $("selBar").classList.toggle("show",on);
+    if(!on) return;
+    $("selCount").textContent=ui.sel.size+"개";
+    const sel=$("selMove");
+    sel.innerHTML='<option value="">분류로 이동</option><option value="__none">미분류</option>'+
+      state.cats[ui.type].map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join("");
   }
 
   // 씬 리스트
@@ -613,10 +707,7 @@
   $("dDel").onclick=()=>{
     const it=state.items[ui.itemId]; if(!it) return;
     if(!confirm("'"+it.name+"' 삭제할까? 담겨 있던 씬에서도 빠져.")) return;
-    const paths=["items/"+it.id];
-    Object.values(state.scenes).forEach(s=>{ const i=s.items.indexOf(it.id); if(i>-1){ s.items.splice(i,1); delete s.set[it.id]; paths.push("scenes/"+s.id); } });
-    delete state.items[it.id]; persist(paths);
-    if(photos[it.id]) savePhoto(it.id,null);
+    deleteItems([it.id]);
     closeItem(); render(true);
   };
 
@@ -656,14 +747,41 @@
   $("meBtn").onclick=askMe;
   $("title").addEventListener("input",e=>{ state.meta.name=e.target.value; persist(["meta"]); });
   document.querySelectorAll(".tape").forEach(b=>b.onclick=()=>{ ui.filter = ui.filter===b.dataset.s ? "" : b.dataset.s; ui.tab="wh"; render(true); });
-  document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{ ui.tab=b.dataset.tab; render(true); });
-  document.querySelectorAll("#typeSeg button").forEach(b=>b.onclick=()=>{ ui.type=b.dataset.t; render(true); });
+  document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{ ui.tab=b.dataset.tab; ui.selMode=false; ui.sel.clear(); render(true); });
+  document.querySelectorAll("#typeSeg button").forEach(b=>b.onclick=()=>{ ui.type=b.dataset.t; ui.sel.clear(); render(true); });
 
   function onAddItem(){
-    const r=addItem(ui.type,$("itemInput").value);
-    if(r&&r.dup){ alert("이미 있는 "+TYPE[ui.type]+"이야."); return; }
+    const names=$("itemInput").value.split(/[,\n]/).map(s=>s.trim()).filter(Boolean);
+    if(!names.length) return;
+    let dup=0;
+    names.forEach(n=>{ const r=addItem(ui.type,n); if(r&&r.dup) dup++; });
+    if(dup) alert(dup===names.length ? "이미 있는 "+TYPE[ui.type]+"이야." : "이미 있는 "+dup+"개는 빼고 추가했어.");
     $("itemInput").value=""; render(true);
   }
+
+  // 여러 개 선택
+  $("selBtn").onclick=()=>{ ui.selMode=!ui.selMode; ui.sel.clear(); render(true); };
+  $("selDone").onclick=()=>{ ui.selMode=false; ui.sel.clear(); render(true); };
+  $("foldAll").onclick=()=>{
+    const t=ui.type, keys=[""].concat(state.cats[t]).map(c=>t+"|"+c);
+    const anyOpen=[...$("whList").querySelectorAll(".cat-block")].some(b=>!b.classList.contains("closed"));
+    keys.forEach(k=>{ if(anyOpen) closedCats.add(k); else closedCats.delete(k); });
+    saveClosed(); render(true);
+  };
+  $("selMove").addEventListener("change",e=>{
+    const v=e.target.value; if(!v) return;
+    if(!ui.sel.size){ alert("옮길 걸 먼저 골라줘."); e.target.value=""; return; }
+    const cat=v==="__none"?"":v, base=Date.now(), paths=[];
+    itemsOf(ui.type).filter(i=>ui.sel.has(i.id)).forEach((it,n)=>{ it.cat=cat; it.ord=base+n; paths.push("items/"+it.id); });
+    persist(paths);
+    closedCats.delete(ui.type+"|"+cat); saveClosed();
+    ui.sel.clear(); render(true);
+  });
+  $("selDel").onclick=()=>{
+    if(!ui.sel.size){ alert("지울 걸 먼저 골라줘."); return; }
+    if(!confirm(ui.sel.size+"개를 삭제할까? 담겨 있던 씬에서도 빠져.")) return;
+    deleteItems([...ui.sel]); ui.sel.clear(); render(true);
+  };
   $("addBtn").onclick=()=>{ onAddItem(); $("itemInput").focus(); };
   $("itemInput").addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.isComposing) onAddItem(); });
 
