@@ -539,7 +539,7 @@
     }
     return false;
   }
-  const matchItem=(it,q)=>hMatch(it.name,q)||hMatch(it.cat,q)||hMatch(it.memo,q);
+  const matchItem=(it,q)=>hMatch(it.name,q);
 
   function makeRow(it,sIdx,showType){
     const row=document.createElement("div"); row.className="row"; row.dataset.id=it.id;
