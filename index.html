@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
+<meta name="format-detection" content="telephone=no, date=no">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>촬영 준비/진행</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -62,7 +63,9 @@
   .tabs button.on{background:var(--card);color:var(--ink);box-shadow:0 2px 6px -3px rgba(0,0,0,.25);}
 
   .panel{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;}
-  .subseg{display:flex;gap:6px;margin-bottom:12px;}
+  .subseg{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
+  .subseg .seg-add{border-style:dashed;background:#fff;color:var(--got);}
+  .type-hint{font-size:11.5px;color:var(--muted);font-weight:600;margin:-6px 0 10px;}
   .subseg button{border:1px solid var(--line);background:var(--soft);border-radius:20px;padding:7px 14px;font-size:14px;font-weight:800;color:var(--muted);}
   .subseg button span{font-weight:700;opacity:.7;margin-left:2px;}
   .subseg button.on{background:var(--slate);border-color:var(--slate);color:#fff;}
@@ -210,7 +213,7 @@
       <button class="me-chip" id="meBtn"></button>
     </div>
     <input class="title-input" id="title" placeholder="작품명" maxlength="20">
-    <div class="hero-sub">미술팀 소품·의상 리스트</div>
+    <div class="hero-sub">연출팀 미술·소품·의상 리스트</div>
   </div>
 </div>
 
@@ -229,10 +232,8 @@
 
   <!-- 전체 리스트 -->
   <div class="panel" id="whPanel">
-    <div class="subseg" id="typeSeg">
-      <button data-t="prop" class="on">소품<span></span></button>
-      <button data-t="costume">의상<span></span></button>
-    </div>
+    <div class="subseg" id="typeSeg"></div>
+    <div class="type-hint">선택된 종류를 한 번 더 누르면 이름 수정·삭제</div>
     <div class="filter-note" id="filterNote"></div>
     <div class="add-row">
       <input id="itemInput" maxlength="30">
@@ -301,10 +302,7 @@
 <div class="sheet-bg" id="pickerBg">
   <div class="sheet">
     <div class="sheet-head"><b id="pickerTitle"></b><button class="sheet-close" id="pickerClose">완료</button></div>
-    <div class="subseg" id="pickerSeg">
-      <button data-t="prop" class="on">소품</button>
-      <button data-t="costume">의상</button>
-    </div>
+    <div class="subseg" id="pickerSeg"></div>
     <input class="field pick-search" id="pickerSearch" placeholder="검색">
     <div id="pickerList"></div>
     <div class="add-row">
@@ -359,8 +357,9 @@
 
   const STATUS=["need","got","stored"];
   const ST={need:"필요",got:"확보",stored:"창고"};
-  const TYPE={prop:"소품",costume:"의상"};
   const ICON={prop:"📦",costume:"👕"};
+  const DEFAULT_TYPES=[{id:"prop",name:"소품"},{id:"costume",name:"의상"}];
+  function tn(id){ const t=state.types.find(x=>x.id===id); return t?t.name:"기타"; }
   const WD=["일","월","화","수","목","금","토"];
   const $=id=>document.getElementById(id);
   const uid=()=>Date.now().toString(36).slice(-4)+Math.random().toString(36).slice(2,6);
@@ -372,8 +371,11 @@
   function normalize(v){
     v=v||{};
     const s={meta:Object.assign({name:""},v.meta||{}),
-      cats:{prop:arr(v.cats&&v.cats.prop),costume:arr(v.cats&&v.cats.costume)},items:{},scenes:{},
+      types: v.types ? arr(v.types).filter(t=>t&&t.id) : DEFAULT_TYPES.map(t=>Object.assign({},t)),
+      cats:{},items:{},scenes:{},
       contCats: v.contCats ? arr(v.contCats) : ["인물 의상","소품 위치"]};
+    if(!s.types.length) s.types=DEFAULT_TYPES.map(t=>Object.assign({},t));
+    s.types.forEach(t=>{ s.cats[t.id]=arr(v.cats&&v.cats[t.id]); });
     Object.entries(v.items||{}).forEach(([k,it])=>{ if(it&&typeof it==="object")
       s.items[k]=Object.assign({type:"prop",name:"",cat:"",status:"need",ord:0,memo:""},it,{id:k}); });
     Object.entries(v.scenes||{}).forEach(([k,sc])=>{ if(sc&&typeof sc==="object")
@@ -411,7 +413,7 @@
   function itemsOf(t){ return Object.values(state.items).filter(i=>i.type===t).sort((a,b)=>(a.ord||0)-(b.ord||0)); }
   function sortedScenes(){ return Object.values(state.scenes).sort((a,b)=>String(a.no).localeCompare(String(b.no),"ko",{numeric:true})); }
   function sceneIndex(){ const m={}; sortedScenes().forEach(sc=>sc.items.forEach(id=>{ (m[id]=m[id]||[]).push(sc); })); return m; }
-  function thumbHTML(it,sm){ const p=photos[it.id]; return '<div class="thumb'+(sm?" sm":"")+'">'+(p?'<img src="'+p+'" alt="">':ICON[it.type])+'</div>'; }
+  function thumbHTML(it,sm){ const p=photos[it.id]; return '<div class="thumb'+(sm?" sm":"")+'">'+(p?'<img src="'+p+'" alt="">':(ICON[it.type]||"🏷️"))+'</div>'; }
 
   function askMe(){
     const v=prompt("이름을 알려줘. 확보·창고 체크할 때 이 이름이 같이 기록돼.",me||"");
@@ -518,10 +520,11 @@
     setTimeout(()=>render(true),0);
   }
   function renderWarehouse(){
+    if(!state.types.some(x=>x.id===ui.type)) ui.type=state.types[0].id;
     const t=ui.type;
-    document.querySelectorAll("#typeSeg button").forEach(b=>{ b.classList.toggle("on",b.dataset.t===t); b.querySelector("span").textContent=" "+itemsOf(b.dataset.t).length; });
-    $("itemInput").placeholder = t==="prop" ? "소품 이름 (쉼표로 여러 개: 컵, 접시, 수저)" : "의상 이름 (쉼표로 여러 개: 셔츠, 코트)";
-    $("catInput").placeholder  = t==="prop" ? "분류 (예: 주방, 소지품, 간판)" : "분류 (예: 배역 이름)";
+    renderTypeSeg();
+    $("itemInput").placeholder = t==="prop" ? "소품 이름 (쉼표로 여러 개: 컵, 접시, 수저)" : t==="costume" ? "의상 이름 (쉼표로 여러 개: 셔츠, 코트)" : tn(t)+" 이름 (쉼표로 여러 개)";
+    $("catInput").placeholder  = t==="prop" ? "분류 (예: 주방, 소지품, 간판)" : t==="costume" ? "분류 (예: 배역 이름)" : "분류 추가";
     const fn=$("filterNote");
     fn.innerHTML = ui.filter ? "<span>"+ST[ui.filter]+" 상태만 보는 중</span><button id=\"clearFilter\">전체 보기</button>" : "";
     if(ui.filter) $("clearFilter").onclick=()=>{ ui.filter=""; render(true); };
@@ -529,8 +532,8 @@
     const box=$("whList"); box.innerHTML="";
     const all=itemsOf(t), cats=state.cats[t], sIdx=sceneIndex();
     const shown = ui.filter ? all.filter(i=>i.status===ui.filter) : all;
-    if(!all.length){ box.innerHTML='<div class="empty">아직 '+TYPE[t]+'이 없어. 위에서 추가하면 필요 상태로 담기고, 오른쪽 버튼을 누를 때마다 필요 → 확보 → 창고로 넘어가.</div>'; return; }
-    if(!shown.length){ box.innerHTML='<div class="empty">'+ST[ui.filter]+' 상태인 '+TYPE[t]+'이 없어.</div>'; return; }
+    if(!all.length){ box.innerHTML='<div class="empty">아직 '+esc(tn(t))+' 항목이 없어. 위에서 추가하면 필요 상태로 담기고, 오른쪽 버튼을 누를 때마다 필요 → 확보 → 창고로 넘어가.</div>'; return; }
+    if(!shown.length){ box.innerHTML='<div class="empty">'+ST[ui.filter]+' 상태인 '+esc(tn(t))+' 항목이 없어.</div>'; return; }
 
     [{key:"",label:"미분류"}].concat(cats.map(c=>({key:c,label:c}))).forEach(b=>{
       const its=shown.filter(i=>(i.cat||"")===b.key);
@@ -604,14 +607,14 @@
       const its=sc.items.map(id=>state.items[id]).filter(Boolean);
       const setN=its.filter(i=>sc.set[i.id]).length;
       const notStored=its.filter(i=>i.status!=="stored").length;
-      const props=its.filter(i=>i.type==="prop"), costs=its.filter(i=>i.type==="costume");
+      const groups=state.types.map(ty=>[ty.name,its.filter(i=>i.type===ty.id)]);
       const card=document.createElement("div"); card.className="scene"+(ui.openScenes.has(sc.id)?" open":""); card.id="sc-"+sc.id;
       card.innerHTML=
         '<div class="scene-head">'+
           '<div class="slate-no">#'+esc(sc.no)+'</div>'+
           '<div class="scene-t"><div class="scene-title">'+esc(sc.title||"장면 이름 없음")+'</div>'+
           '<div class="scene-meta">'+(sc.date?"<span>"+fmtDate(sc.date)+"</span>":"")+(sc.place?"<span>"+esc(sc.place)+"</span>":"")+
-            "<span>소품 "+props.length+"</span><span>의상 "+costs.length+"</span>"+(notStored?'<span class="warn">미입고 '+notStored+"</span>":"")+'</div></div>'+
+            groups.map(([n,g])=>"<span>"+esc(n)+" "+g.length+"</span>").join("")+(notStored?'<span class="warn">미입고 '+notStored+"</span>":"")+'</div></div>'+
           '<div class="scene-prog'+(its.length&&setN===its.length?" full":"")+'">'+setN+"/"+its.length+'</div>'+
           '<span class="chev">▾</span>'+
         '</div>'+
@@ -637,7 +640,7 @@
       });
       const sl=card.querySelector(".s-list");
       if(!its.length) sl.innerHTML='<div class="empty">아직 담긴 게 없어.</div>';
-      [["소품",props],["의상",costs]].forEach(([lbl,group])=>{
+      groups.forEach(([lbl,group])=>{
         if(!group.length) return;
         const g=document.createElement("div"); g.className="grp-label"; g.textContent=lbl; sl.appendChild(g);
         group.forEach(it=>{
@@ -667,25 +670,37 @@
 
   // ---------- 연결 사진 ----------
   let shotTarget=null, rTimer=null;
-  const shotCache={}, shotTried=new Set();
+  // 크게 보기용(shots)과 목록용 작은 썸네일(thumbs)을 따로 저장
+  const shotCache={}, thumbCache={}, shotTried=new Set(), thumbTried=new Set();
   function shotGet(id){ return shotCache[id]||photos["s_"+id]||""; }
-  function shotSave(id,data){
-    if(remote){ shotCache[id]=data; shotTried.add(id); remote.shot(id,data); }
-    else savePhoto("s_"+id,data);
+  function thumbGet(id){ return thumbCache[id]||photos["t_"+id]||shotGet(id); }
+  function shotSave(id,full,thumb){
+    if(remote){ shotCache[id]=full; thumbCache[id]=thumb; shotTried.add(id); thumbTried.add(id); remote.shot(id,full); remote.thumb(id,thumb); }
+    else { savePhoto("s_"+id,full); savePhoto("t_"+id,thumb); }
   }
   function shotRemove(id){
-    delete shotCache[id];
-    if(remote) remote.shot(id,null);
+    delete shotCache[id]; delete thumbCache[id];
+    if(remote){ remote.shot(id,null); remote.thumb(id,null); }
     if(photos["s_"+id]) savePhoto("s_"+id,null);
+    if(photos["t_"+id]) savePhoto("t_"+id,null);
   }
   function laterRender(){ clearTimeout(rTimer); rTimer=setTimeout(()=>render(),80); }
   function ensureShots(sc){
     if(!remote) return;
     sc.shots.forEach(s=>{
-      const id=s.id; if(shotGet(id)||shotTried.has(id)) return;
-      shotTried.add(id);
-      remote.getShot(id).then(d=>{ if(d) shotCache[id]=d; }).catch(()=>{}).finally(laterRender);
+      const id=s.id; if(thumbGet(id)||thumbTried.has(id)) return;
+      thumbTried.add(id);
+      remote.getThumb(id).then(d=>{
+        if(d){ thumbCache[id]=d; return; }
+        shotTried.add(id);   // 예전 사진은 썸네일이 없어서 원래 사진으로
+        return remote.getShot(id).then(f=>{ if(f) shotCache[id]=f; });
+      }).catch(()=>{}).finally(laterRender);
     });
+  }
+  function ensureFull(id){
+    if(!remote || shotGet(id) || shotTried.has(id)) return;
+    shotTried.add(id);
+    remote.getShot(id).then(f=>{ if(f) shotCache[id]=f; }).catch(()=>{}).finally(()=>{ if(ui.shot&&ui.shot.id===id) refreshShot(); });
   }
   function renderContTab(){
     const box=$("contList"); box.innerHTML="";
@@ -717,8 +732,8 @@
       const grid=g.querySelector(".shots");
       shots.forEach(s=>{
         const b=document.createElement("button"); b.className="shot";
-        const p=shotGet(s.id);
-        b.innerHTML=(p?'<img src="'+p+'" alt="'+esc(s.note||cat)+'">':'<span class="shot-load">'+(shotTried.has(s.id)&&remote?"":"…")+"</span>")+(s.note?'<span class="note-dot"></span>':"");
+        const p=thumbGet(s.id);
+        b.innerHTML=(p?'<img src="'+p+'" alt="'+esc(s.note||cat)+'" loading="lazy">':'<span class="shot-load">…</span>')+(s.note?'<span class="note-dot"></span>':"");
         b.onclick=()=>openShot(sc.id,s.id);
         grid.appendChild(b);
       });
@@ -756,8 +771,8 @@
     for(const f of files){
       const sc=state.scenes[tg.scId]; if(!sc) break;
       try{
-        const data=await compress(f), id=uid();
-        shotSave(id,data);
+        const [full,thumb]=await compressMulti(f,[[900,0.55],[240,0.5]]), id=uid();
+        shotSave(id,full,thumb);
         sc.shots.push({id,cat:tg.cat,note:"",by:me||"",at:stamp()});
         persist(["scenes/"+sc.id]); render(true);
       }catch(err){ fail++; }
@@ -770,7 +785,8 @@
   function refreshShot(full){
     const {sc,s}=findShot(); if(!s){ closeShot(); return; }
     $("shotTitle").textContent="#"+sc.no+" "+s.cat;
-    $("shotImg").src=shotGet(s.id);
+    $("shotImg").src=shotGet(s.id)||thumbGet(s.id);
+    ensureFull(s.id);
     $("shotWho").innerHTML=s.by?"올린 사람 <b>"+esc(s.by)+"</b> "+esc(s.at||""):esc(s.at||"");
     if(full||document.activeElement!==$("shotNote")) $("shotNote").value=s.note||"";
     if(document.activeElement!==$("shotCat")){
@@ -795,11 +811,13 @@
   function renderPicker(){
     const sc=state.scenes[ui.pickScene]; if(!sc){ closePicker(); return; }
     $("pickerTitle").textContent="#"+sc.no+"에 담기";
-    document.querySelectorAll("#pickerSeg button").forEach(b=>b.classList.toggle("on",b.dataset.t===ui.pickType));
+    if(!state.types.some(x=>x.id===ui.pickType)) ui.pickType=state.types[0].id;
+    $("pickerSeg").innerHTML=state.types.map(ty=>'<button data-t="'+esc(ty.id)+'"'+(ty.id===ui.pickType?' class="on"':"")+'>'+esc(ty.name)+'</button>').join("");
+    $("pickerSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{ ui.pickType=b.dataset.t; renderPicker(); });
     const q=$("pickerSearch").value.trim();
     const its=itemsOf(ui.pickType).filter(i=>!q||i.name.includes(q));
     const box=$("pickerList"); box.innerHTML="";
-    if(!its.length){ box.innerHTML='<div class="empty">'+(q?"검색 결과가 없어. 아래에서 새로 추가해.":"아직 "+TYPE[ui.pickType]+"이 없어. 아래에서 바로 추가해.")+'</div>'; return; }
+    if(!its.length){ box.innerHTML='<div class="empty">'+(q?"검색 결과가 없어. 아래에서 새로 추가해.":"아직 "+esc(tn(ui.pickType))+" 항목이 없어. 아래에서 바로 추가해.")+'</div>'; return; }
     its.forEach(it=>{
       const on=sc.items.includes(it.id);
       const r=document.createElement("div"); r.className="prow";
@@ -810,7 +828,6 @@
   }
   $("pickerClose").onclick=closePicker;
   $("pickerBg").onclick=e=>{ if(e.target===$("pickerBg")) closePicker(); };
-  document.querySelectorAll("#pickerSeg button").forEach(b=>b.onclick=()=>{ ui.pickType=b.dataset.t; renderPicker(); });
   $("pickerSearch").addEventListener("input",renderPicker);
   function pickerAdd(){
     const r=addItem(ui.pickType,$("pickerNew").value); if(!r) return;
@@ -824,7 +841,7 @@
   // ---------- 항목 상세 ----------
   function fillCats(it){
     const sel=$("dCat"); sel.innerHTML="";
-    [""].concat(state.cats[it.type]).forEach(c=>{ const o=document.createElement("option"); o.value=c; o.textContent=c||"미분류"; sel.appendChild(o); });
+    [""].concat(state.cats[it.type]||[]).forEach(c=>{ const o=document.createElement("option"); o.value=c; o.textContent=c||"미분류"; sel.appendChild(o); });
     sel.value=it.cat||"";
   }
   function openItem(id){
@@ -836,7 +853,7 @@
   function closeItem(){ ui.itemId=null; $("itemBg").classList.remove("show"); }
   function refreshSheet(){
     const it=state.items[ui.itemId]; if(!it){ closeItem(); return; }
-    $("dType").textContent=TYPE[it.type];
+    $("dType").textContent=tn(it.type);
     const p=photos[it.id], ph=$("dPhoto");
     ph.className="photo"+(p?" has":"");
     ph.innerHTML = p ? '<img src="'+p+'" alt="'+esc(it.name)+'">' : (ph.dataset.busy?"사진 줄이는 중…":"📷<br>눌러서 사진 추가");
@@ -882,15 +899,19 @@
   };
 
   // 사진
-  function compress(file){
+  // 사진 줄이기: sizes = [[최대 픽셀, 화질], ...]
+  function compressMulti(file,sizes){
     return new Promise((res,rej)=>{
       const url=URL.createObjectURL(file), img=new Image();
       img.onload=()=>{
-        const max=1000, s=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
-        const c=document.createElement("canvas");
-        c.width=Math.round(img.naturalWidth*s); c.height=Math.round(img.naturalHeight*s);
-        c.getContext("2d").drawImage(img,0,0,c.width,c.height);
-        URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg",0.72));
+        const out=sizes.map(([max,q])=>{
+          const s=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+          const c=document.createElement("canvas");
+          c.width=Math.round(img.naturalWidth*s); c.height=Math.round(img.naturalHeight*s);
+          c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+          return c.toDataURL("image/jpeg",q);
+        });
+        URL.revokeObjectURL(url); res(out);
       };
       img.onerror=()=>{ URL.revokeObjectURL(url); rej(); };
       img.src=url;
@@ -907,7 +928,7 @@
     const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
     const id=ui.itemId, ph=$("dPhoto");
     ph.dataset.busy="1"; refreshSheet();
-    try{ const data=await compress(f); savePhoto(id,data); }
+    try{ const [data]=await compressMulti(f,[[600,0.55]]); savePhoto(id,data); }
     catch(err){ alert("이 사진은 불러올 수 없어. 다른 형식(JPG, PNG)으로 다시 올려줘."); }
     delete ph.dataset.busy; render(true);
   });
@@ -918,14 +939,45 @@
   $("title").addEventListener("input",e=>{ state.meta.name=e.target.value; persist(["meta"]); });
   document.querySelectorAll(".tape").forEach(b=>b.onclick=()=>{ ui.filter = ui.filter===b.dataset.s ? "" : b.dataset.s; ui.tab="wh"; render(true); });
   document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{ ui.tab=b.dataset.tab; ui.selMode=false; ui.sel.clear(); render(true); });
-  document.querySelectorAll("#typeSeg button").forEach(b=>b.onclick=()=>{ ui.type=b.dataset.t; ui.sel.clear(); render(true); });
+  function renderTypeSeg(){
+    const box=$("typeSeg");
+    box.innerHTML=state.types.map(ty=>'<button data-t="'+esc(ty.id)+'"'+(ty.id===ui.type?' class="on"':"")+'>'+esc(ty.name)+'<span> '+itemsOf(ty.id).length+'</span></button>').join("")+
+      '<button class="seg-add" id="typeAdd">+ 종류</button>';
+    box.querySelectorAll("button[data-t]").forEach(b=>b.onclick=()=>{
+      if(b.dataset.t===ui.type){ editType(ui.type); return; }
+      ui.type=b.dataset.t; ui.sel.clear(); render(true);
+    });
+    $("typeAdd").onclick=addType;
+  }
+  function addType(){
+    const v=prompt("새 종류 이름 (예: 세트, 분장, 차량)"); if(v===null) return;
+    const n=v.trim().slice(0,10); if(!n) return;
+    if(state.types.some(x=>x.name===n)){ alert("이미 있는 종류야."); return; }
+    const id=uid(); state.types.push({id,name:n}); state.cats[id]=[];
+    persist(["types"]); ui.type=id; ui.sel.clear(); render(true);
+  }
+  function editType(id){
+    const ty=state.types.find(x=>x.id===id); if(!ty) return;
+    const v=prompt("'"+ty.name+"' 이름 수정 (비우면 삭제)",ty.name); if(v===null) return;
+    const n=v.trim().slice(0,10);
+    if(!n){
+      if(state.types.length<=1){ alert("종류는 최소 하나는 있어야 해."); return; }
+      const cnt=itemsOf(id).length;
+      if(cnt){ alert("'"+ty.name+"'에 "+cnt+"개가 있어서 지울 수 없어. 먼저 옮기거나 지워줘."); return; }
+      state.types=state.types.filter(x=>x.id!==id); delete state.cats[id];
+      persist(["types","cats/"+id]); ui.type=state.types[0].id; render(true); return;
+    }
+    if(n===ty.name) return;
+    if(state.types.some(x=>x.name===n)){ alert("이미 있는 종류야."); return; }
+    ty.name=n; persist(["types"]); render(true);
+  }
 
   function onAddItem(){
     const names=$("itemInput").value.split(/[,\n]/).map(s=>s.trim()).filter(Boolean);
     if(!names.length) return;
     let dup=0;
     names.forEach(n=>{ const r=addItem(ui.type,n); if(r&&r.dup) dup++; });
-    if(dup) alert(dup===names.length ? "이미 있는 "+TYPE[ui.type]+"이야." : "이미 있는 "+dup+"개는 빼고 추가했어.");
+    if(dup) alert(dup===names.length ? "이미 있는 항목이야." : "이미 있는 "+dup+"개는 빼고 추가했어.");
     $("itemInput").value=""; render(true);
   }
 
@@ -994,6 +1046,8 @@
       remote={
         update(paths){ const u={}; paths.forEach(p=>{ u[p]=clean(getPath(p)); }); update(dataRef,u).catch(()=>setBadge("저장 실패, 연결을 확인해줘")); },
         getShot(id){ return get(ref(db,ROOT+"/shots/"+id)).then(s=>s.val()); },
+        getThumb(id){ return get(ref(db,ROOT+"/thumbs/"+id)).then(s=>s.val()); },
+        thumb(id,data){ set(ref(db,ROOT+"/thumbs/"+id),data).catch(()=>{}); },
         shot(id,data){ set(ref(db,ROOT+"/shots/"+id),data).catch(()=>{ if(data) alert("사진 업로드에 실패했어. 연결을 확인하고 다시 올려줘."); }); },
         photo(id,data){ set(ref(db,ROOT+"/photos/"+id),data).catch(()=>alert("사진 업로드에 실패했어. 연결을 확인하고 다시 올려줘.")); }
       };
