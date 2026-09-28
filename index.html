@@ -192,6 +192,7 @@
   .sheet-bg{position:fixed;inset:0;background:rgba(18,25,36,.5);display:none;align-items:flex-end;justify-content:center;z-index:50;}
   .sheet-bg.show{display:flex;}
   .sheet-bg{overscroll-behavior:none;}
+  .sheet::before{content:"";display:block;width:42px;height:5px;border-radius:3px;background:#C9D0D8;margin:-4px auto 6px;}
   .sheet{overscroll-behavior:contain;-webkit-overflow-scrolling:touch;background:var(--card);width:100%;max-width:560px;max-height:90vh;overflow:auto;border-radius:22px 22px 0 0;padding:14px 16px calc(24px + env(safe-area-inset-bottom));}
   .sheet-head{display:flex;align-items:center;gap:8px;margin-bottom:12px;position:sticky;top:-14px;background:var(--card);padding:6px 0;z-index:2;}
   .sheet-head b{font-size:17px;font-weight:800;}
@@ -1147,6 +1148,42 @@
     }
     const mo=new MutationObserver(update);
     layers.forEach(el=>mo.observe(el,{attributes:true,attributeFilter:["class"]}));
+  })();
+
+  // ---------- 창을 아래로 내리면 닫기 ----------
+  (function swipeClose(){
+    const map={itemBg:()=>closeItem(), pickerBg:()=>closePicker(), shotBg:()=>closeShot()};
+    Object.entries(map).forEach(([bgId,close])=>{
+      const sh=$(bgId).querySelector(".sheet");
+      let y0=null, t0=0, d=0, drag=false;
+      sh.addEventListener("touchstart",e=>{
+        const tg=e.target;
+        if(e.touches.length>1 || sh.scrollTop>0 || tg.closest("textarea,select") || (tg.matches("input") && document.activeElement===tg)){ y0=null; return; }
+        y0=e.touches[0].clientY; t0=Date.now(); d=0; drag=false;
+      },{passive:true});
+      sh.addEventListener("touchmove",e=>{
+        if(y0===null) return;
+        const dy=e.touches[0].clientY-y0;
+        if(!drag){
+          if(dy<-4){ y0=null; return; }         // 위로 올리면 원래대로 스크롤
+          if(dy<10 || sh.scrollTop>0) return;
+          drag=true;
+        }
+        if(e.cancelable) e.preventDefault();
+        d=Math.max(0,dy); sh.style.transition="none"; sh.style.transform="translateY("+d+"px)";
+      },{passive:false});
+      const end=()=>{
+        if(y0===null) return; y0=null;
+        if(!drag) return; drag=false;
+        const v=d/Math.max(1,Date.now()-t0);
+        sh.style.transition="transform .22s ease";
+        if(d>110 || (v>0.6 && d>40)){
+          sh.style.transform="translateY(100%)";
+          setTimeout(()=>{ close(); sh.style.transition=""; sh.style.transform=""; },200);
+        } else sh.style.transform="";
+      };
+      sh.addEventListener("touchend",end); sh.addEventListener("touchcancel",end);
+    });
   })();
 
   // ---------- 당겨서 새로고침 (홈 화면 앱에서만) ----------
